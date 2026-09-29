@@ -43,9 +43,9 @@ extension BuiltinGrammars {
         firstLinePattern: #"^#!.*\bpython(?:\d(?:\.\d+)?)?\b"#,
         states: Kit.merge(
             [
-                "root": GrammarState(rules: [
+                "root": GrammarState(rules: Kit.rules([
                     .match(#"#.*"#, .commentLine),
-                ] + pythonStringStates.rules + [
+                ], pythonStringStates.rules, [
                     .match(#"@[A-Za-z_][\w.]*"#, .attribute),
                     .match(#"\b(?:0[xX][\h_]+|0[oO][0-7_]+|0[bB][01_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?[jJ]?)\b"#,
                            .number),
@@ -62,7 +62,7 @@ extension BuiltinGrammars {
                            .functionBuiltin),
                     .match(#"\b__\w+__\b"#, .variableBuiltin),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
             ],
             pythonStringStates.states,
             Kit.interpolationStates(name: "interpolation")
@@ -137,7 +137,7 @@ extension BuiltinGrammars {
         firstLinePattern: #"^(?:<\?php\b|#!.*\bphp\b)"#,
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .match(#"<\?(?:php\b|=)?|\?>"#, .preprocessor),
                     .match(#"#\[[^\]]*\]"#, .attribute),
                     .match(#"#.*"#, .commentLine),
@@ -165,7 +165,7 @@ extension BuiltinGrammars {
                     Kit.functionCall,
                     .match(#"\b[A-Z]\w*"#, .type),
                     .match(#"(?<=->)[A-Za-z_]\w*"#, .property),
-                ]),
+                ])),
                 "double": Kit.stringState(close: "\"", singleLine: false, extra: [
                     .match(#"\$[A-Za-z_]\w*(?:->[A-Za-z_]\w*)?"#, .variable),
                     .push(#"\{(?=\$)"#, "interpolation", scope: .interpolation),

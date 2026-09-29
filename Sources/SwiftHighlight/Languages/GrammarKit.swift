@@ -76,6 +76,11 @@ enum Kit {
     /// An identifier after `.` → property (after calls have been tried).
     static let property: Rule = .match(#"(?<=\.)[A-Za-z_]\w*"#, .property)
 
+    /// Concatenates rule lists. (A long chain of `+` on arrays literals is slow to type-check.)
+    static func rules(_ lists: [Rule]...) -> [Rule] {
+        lists.flatMap { $0 }
+    }
+
     static func merge(_ dictionaries: [String: GrammarState]...) -> [String: GrammarState] {
         var result: [String: GrammarState] = [:]
         for dictionary in dictionaries { result.merge(dictionary) { _, new in new } }

@@ -20,7 +20,7 @@ extension BuiltinGrammars {
 
     private static func scriptGrammar(name: String, id: String, aliases: [String], extensions: [String],
                                       typescript: Bool, jsx: Bool) -> Grammar {
-        var rules: [Rule] = Kit.cComments + [
+        var rules: [Rule] = Kit.rules(Kit.cComments, [
             .match(#"^#!.*"#, .commentLine),
             .push(#"'"#, "single"),
             .push("\"", "double"),
@@ -33,7 +33,7 @@ extension BuiltinGrammars {
             .match(#"\b(class|interface|enum|type|namespace)\s+([A-Za-z_$][\w$]*)"#,
                    captures: [1: .keywordDeclaration, 2: .type]),
             .match(#"\b(function\*?)\s*([A-Za-z_$][\w$]*)"#, captures: [1: .keywordDeclaration, 2: .function]),
-        ]
+        ])
         if jsx {
             rules.append(.push(#"(?:(?<=[(,=:?&|>{}\[]\s{0,8})|(?<=^\s{0,32})|(?<=\breturn\s{1,4}))(<)([A-Za-z][\w.:-]*)(?=[\s/>])"#,
                                "jsxTag", captures: [1: .punctuation, 2: .tag]))
@@ -112,12 +112,12 @@ extension BuiltinGrammars {
         fileNames: [".babelrc", ".eslintrc", ".prettierrc", "composer.lock", "package.resolved", ".swiftpm"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .match(#""(?:[^"\\]|\\.)*"(?=\s*:)"#, .key),
                     .push("\"", "string"),
                     .match(#"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"#, .number),
                     .words(["true", "false", "null"], .constant),
-                ]),
+                ])),
                 "string": Kit.stringState(close: "\"", escape: #"\\(?:u\h{4}|.)"#),
             ],
             Kit.cCommentStates
@@ -168,9 +168,9 @@ extension BuiltinGrammars {
         firstLinePattern: #"^\s*<\?xml\b"#,
         states: Kit.merge(
             [
-                "root": GrammarState(rules: markupCommon + [
+                "root": GrammarState(rules: Kit.rules(markupCommon, [
                     .push(#"(<)([A-Za-z_][\w:.-]*)"#, "tag", captures: [1: .punctuation, 2: .tag]),
-                ]),
+                ])),
             ],
             markupStates
         )
@@ -184,18 +184,18 @@ extension BuiltinGrammars {
         firstLinePattern: #"(?i)^\s*<(?:!DOCTYPE\s+html|html)\b"#,
         states: Kit.merge(
             [
-                "root": GrammarState(rules: markupCommon + [
+                "root": GrammarState(rules: Kit.rules(markupCommon, [
                     .match(#"\{\{[^}]*\}\}"#, .interpolation),
                     .push(#"(?i)(<)(script)\b"#, "scriptTag", captures: [1: .punctuation, 2: .tag]),
                     .push(#"(?i)(<)(style)\b"#, "styleTag", captures: [1: .punctuation, 2: .tag]),
                     .push(#"(<)([A-Za-z][\w:.-]*)"#, "tag", captures: [1: .punctuation, 2: .tag]),
-                ]),
-                "scriptTag": GrammarState(rules: [.set(#">"#, "scriptBody", scope: .punctuation)] + markupTagRules),
+                ])),
+                "scriptTag": GrammarState(rules: Kit.rules([.set(#">"#, "scriptBody", scope: .punctuation)], markupTagRules)),
                 "scriptBody": [
                     .pop(#"(?i)(?=</script)"#),
                     .embed("", language: "javascript", end: #"(?i)(?=</script)"#),
                 ],
-                "styleTag": GrammarState(rules: [.set(#">"#, "styleBody", scope: .punctuation)] + markupTagRules),
+                "styleTag": GrammarState(rules: Kit.rules([.set(#">"#, "styleBody", scope: .punctuation)], markupTagRules)),
                 "styleBody": [
                     .pop(#"(?i)(?=</style)"#),
                     .embed("", language: "css", end: #"(?i)(?=</style)"#),

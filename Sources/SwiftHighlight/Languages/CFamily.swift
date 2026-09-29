@@ -34,7 +34,7 @@ extension BuiltinGrammars {
         fileExtensions: ["c"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: cPreprocessor + Kit.cComments + cStrings + [
+                "root": GrammarState(rules: Kit.rules(cPreprocessor, Kit.cComments, cStrings, [
                     Kit.number,
                     .words(cControl, .keywordControl),
                     .words(cTypes, .keywordDeclaration),
@@ -43,7 +43,7 @@ extension BuiltinGrammars {
                     .words(cConstants, .constant),
                     .match(cBuiltinTypes, .typeBuiltin),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "string": Kit.stringState(close: "\""),
             ],
             Kit.cCommentStates
@@ -59,9 +59,9 @@ extension BuiltinGrammars {
         fileExtensions: ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "tpp", "inl", "ino", "cu", "cuh"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: cPreprocessor + Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(cPreprocessor, Kit.cComments, [
                     .push(#"(?:u8|[uUL])?R"([^()\\\s]{0,16})\("#, "rawString", delimiter: 1),
-                ] + cStrings + [
+                ], cStrings, [
                     Kit.number,
                     .match(#"\b(class|struct|union|enum(?:\s+class)?|namespace|concept)\s+([A-Za-z_]\w*)"#,
                            captures: [1: .keywordDeclaration, 2: .type]),
@@ -80,7 +80,7 @@ extension BuiltinGrammars {
                     .match(#"\bstd\b"#, .namespace),
                     .match(#"[A-Za-z_]\w*(?=::)"#, .namespace),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "string": Kit.stringState(close: "\""),
                 "rawString": GrammarState(scope: .string, rules: [.pop(#"\)\k""#)]),
             ],
@@ -97,12 +97,12 @@ extension BuiltinGrammars {
         fileExtensions: ["m", "mm", "h"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: cPreprocessor + Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(cPreprocessor, Kit.cComments, [
                     .push(#"@""#, "string"),
                     .match(#"@(?:interface|implementation|end|protocol|property|synthesize|dynamic|class|selector|encode|optional|required|public|private|protected|package|try|catch|finally|throw|autoreleasepool|synchronized|import|available|compatibility_alias|defs)\b"#,
                            .keyword),
                     .match(#"@(?=[\[{(\d])"#, .keyword),
-                ] + cStrings + [
+                ], cStrings, [
                     Kit.number,
                     .words(cControl + ["in"], .keywordControl),
                     .words(cTypes + ["id", "instancetype", "Class", "SEL", "IMP", "BOOL", "class", "namespace",
@@ -120,7 +120,7 @@ extension BuiltinGrammars {
                     .match(cBuiltinTypes, .typeBuiltin),
                     .match(#"[A-Za-z_]\w*(?=:)"#, .functionCall),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "string": Kit.stringState(close: "\""),
             ],
             Kit.cCommentStates
@@ -136,7 +136,7 @@ extension BuiltinGrammars {
         fileExtensions: ["cs", "csx"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .match(#"^\s*#\s*[a-z]+"#, .preprocessor),
                     .match(#"^\s*\[\s*([A-Z]\w*)"#, captures: [1: .attribute]),
                     .push("\"\"\"", "rawString"),
@@ -167,7 +167,7 @@ extension BuiltinGrammars {
                     Kit.functionCall,
                     .match(#"\b[A-Z]\w*"#, .type),
                     Kit.property,
-                ]),
+                ])),
                 "string": Kit.stringState(close: "\""),
                 "verbatim": Kit.stringState(close: "\"", escape: "\"\"", singleLine: false),
                 "rawString": Kit.stringState(close: "\"\"\"", escape: nil, singleLine: false),
@@ -193,7 +193,7 @@ extension BuiltinGrammars {
         fileExtensions: ["java", "jsh"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .match(#"@(?!interface\b)[A-Za-z_][\w.]*"#, .attribute),
                     .push("\"\"\"", "textBlock"),
                     .push("\"", "string"),
@@ -214,7 +214,7 @@ extension BuiltinGrammars {
                     .words(["this", "super"], .variableBuiltin),
                     .words(["boolean", "byte", "char", "short", "int", "long", "float", "double"], .typeBuiltin),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "string": Kit.stringState(close: "\""),
                 "textBlock": Kit.stringState(close: "\"\"\"", singleLine: false),
             ],
@@ -230,7 +230,7 @@ extension BuiltinGrammars {
         fileExtensions: ["kt", "kts"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .match(#"@(?:[A-Za-z_]\w*:)?[A-Za-z_][\w.]*"#, .attribute),
                     .push("\"\"\"", "rawString"),
                     .push("\"", "string"),
@@ -255,7 +255,7 @@ extension BuiltinGrammars {
                     .words(["true", "false", "null"], .constant),
                     .words(["this", "super", "it", "field"], .variableBuiltin),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "string": Kit.stringState(close: "\"", extra: [
                     .push(#"\$\{"#, "interpolation", scope: .interpolation),
                     .match(#"\$[A-Za-z_]\w*"#, .variable),
@@ -277,7 +277,7 @@ extension BuiltinGrammars {
         fileExtensions: ["dart"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .match(#"@[A-Za-z_][\w.]*"#, .attribute),
                     .push(#"r'''"#, "rawTripleSingle"),
                     .push(#"r""""#, "rawTripleDouble"),
@@ -305,7 +305,7 @@ extension BuiltinGrammars {
                     .words(["int", "double", "num", "bool", "String", "List", "Map", "Set", "Object", "Never",
                             "Future", "Stream", "Iterable"], .typeBuiltin),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "single": Kit.stringState(close: "'", extra: dartInterpolation),
                 "double": Kit.stringState(close: "\"", extra: dartInterpolation),
                 "tripleSingle": Kit.stringState(close: "'''", singleLine: false, extra: dartInterpolation),
@@ -333,7 +333,7 @@ extension BuiltinGrammars {
         fileExtensions: ["go"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .push("\"", "string"),
                     .push(#"`"#, "rawString"),
                     .match(#"'(?:\\(?:x\h{2}|u\h{4}|U\h{8}|[0-7]{3}|.)|[^'\\])'"#, .character),
@@ -354,7 +354,7 @@ extension BuiltinGrammars {
                     Kit.functionCall,
                     .match(#"\b[A-Z]\w*"#, .type),
                     Kit.property,
-                ]),
+                ])),
                 "string": Kit.stringState(close: "\""),
                 "rawString": Kit.stringState(close: "`", escape: nil, singleLine: false),
             ],
@@ -370,7 +370,7 @@ extension BuiltinGrammars {
         fileExtensions: ["rs"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: [
+                "root": GrammarState(rules: Kit.rules([
                     .push(#"/\*[*!](?![*/])"#, "docComment"),
                     .push(#"/\*"#, "blockComment"),
                     .match(#"//[/!].*"#, "comment.line.documentation"),
@@ -398,7 +398,7 @@ extension BuiltinGrammars {
                             "f32", "f64", "bool", "char", "str"], .typeBuiltin),
                     .match(#"[A-Za-z_]\w*(?=::)"#, .namespace),
                     Kit.functionCall,
-                ] + Kit.constantsAndTypes + [Kit.property]),
+                ], Kit.constantsAndTypes, [Kit.property])),
                 "string": Kit.stringState(close: "\"", escape: #"\\(?:x\h{2}|u\{\h{1,6}\}|.)"#, singleLine: false),
                 "rawString": Kit.stringState(close: #""\k"#, escape: nil, singleLine: false),
                 "rawStringPlain": Kit.stringState(close: "\"", escape: nil, singleLine: false),

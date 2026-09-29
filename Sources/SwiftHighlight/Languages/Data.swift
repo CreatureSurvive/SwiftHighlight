@@ -155,7 +155,7 @@ extension BuiltinGrammars {
         fileExtensions: ["proto"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.rules(Kit.cComments, [
                     .push("\"", "double"),
                     .push(#"'"#, "single"),
                     Kit.number,
@@ -170,7 +170,7 @@ extension BuiltinGrammars {
                             "fixed64", "sfixed32", "sfixed64", "bool", "string", "bytes"], .typeBuiltin),
                     .words(["true", "false", "inf", "nan"], .constant),
                     .match(#"\b[A-Z]\w*"#, .type),
-                ]),
+                ])),
                 "double": Kit.stringState(close: "\""),
                 "single": Kit.stringState(close: "'"),
             ],
@@ -187,14 +187,14 @@ extension BuiltinGrammars {
         fileNames: ["Dockerfile", "Containerfile"],
         states: Kit.merge(
             [
-                "root": GrammarState(rules: [
+                "root": GrammarState(rules: Kit.rules([
                     .match(#"^\s*#\s*(?:syntax|escape|check)\s*=.*"#, .preprocessor),
                     .match(#"^\s*#.*"#, .commentLine),
                     .match(#"(?i)^\s*(?:FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\b"#,
                            .keyword),
                     .match(#"(?i)\bAS\b(?=\s+\w)"#, .keyword),
                     .match(#"--[A-Za-z-]+(?==)"#, .tagAttribute),
-                ] + shellRules),
+                ], shellRules)),
             ],
             shellStates
         )
