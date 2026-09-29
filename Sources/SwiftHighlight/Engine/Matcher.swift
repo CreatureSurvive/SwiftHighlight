@@ -114,6 +114,35 @@ struct Choice {
     static let lazy: Int32 = 3
 }
 
+let notAKeyword = UInt32.max
+
+/// The scope of the keyword `input[start..<end]` in keyword table `table`, or `notAKeyword`.
+@inline(__always)
+func lookupKeyword(_ program: ProgramView, table index: Int, input: UnsafePointer<UInt8>, start: Int, end: Int) -> UInt32 {
+    let table = program.keywordTables[index]
+    let fold = table.caseInsensitive
+    let length = end &- start
+    let mask = Int(table.mask)
+    var slot = Int(keywordHash(input, start, end, fold: fold)) & mask
+    let slots = program.keywordSlots + Int(table.slotOffset)
+    while true {
+        let entryIndex = slots[slot]
+        if entryIndex < 0 { return notAKeyword }
+        let entry = program.keywordEntries[Int(entryIndex)]
+        if Int(entry.length) == length {
+            let word = program.literals + Int(entry.offset)
+            var offset = 0
+            if fold {
+                while offset < length, foldASCII(input[start &+ offset]) == word[offset] { offset &+= 1 }
+            } else {
+                while offset < length, input[start &+ offset] == word[offset] { offset &+= 1 }
+            }
+            if offset == length { return entry.scope }
+        }
+        slot = (slot &+ 1) & mask
+    }
+}
+
 /// `\w` membership without touching a lazily-initialized global.
 @inline(__always)
 func isWordByte(_ byte: UInt8) -> Bool {
@@ -380,35 +409,9 @@ struct VM {
                 }
 
             case .words:
-                let table = program.keywordTables[Int(instruction.a)]
-                let fold = table.caseInsensitive
-                let start = attemptStart
-                let length = pos &- start
-                let mask = Int(table.mask)
-                var slot = Int(keywordHash(input, start, pos, fold: fold)) & mask
-                let slotBase = program.keywordSlots + Int(table.slotOffset)
-                var found = false
-                while true {
-                    let entryIndex = slotBase[slot]
-                    if entryIndex < 0 { break }
-                    let entry = program.keywordEntries[Int(entryIndex)]
-                    if Int(entry.length) == length {
-                        let word = program.literals + Int(entry.offset)
-                        var index = 0
-                        if fold {
-                            while index < length, foldASCII(input[start &+ index]) == word[index] { index &+= 1 }
-                        } else {
-                            while index < length, input[start &+ index] == word[index] { index &+= 1 }
-                        }
-                        if index == length {
-                            wordScope = entry.scope
-                            found = true
-                            break
-                        }
-                    }
-                    slot = (slot &+ 1) & mask
-                }
-                if found {
+                let scope = lookupKeyword(program, table: Int(instruction.a), input: input, start: attemptStart, end: pos)
+                if scope != notAKeyword {
+                    wordScope = scope
                     pc &+= 1
                 } else {
                     ok = false

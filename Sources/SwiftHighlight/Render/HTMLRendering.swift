@@ -17,29 +17,25 @@ public struct HTMLOptions: Sendable {
 public extension HighlightedCode {
     /// HTML with inline `style` attributes from `theme`: self-contained, no stylesheet needed.
     func html(theme: Theme, options: HTMLOptions = HTMLOptions()) -> String {
-        var cache: [UInt32: String?] = [:]
-        return renderHTML(options: options, preStyle: "background-color:\(theme.background.css);color:\(theme.foreground.css)") { scope in
-            if let cached = cache[scope] { return cached }
-            let style = theme.style(for: Scope(id: scope))
-            let css = style.cssDeclarations(defaultForeground: theme.foreground)
-            let attribute: String? = css.isEmpty ? nil : "style=\"\(css)\""
-            cache[scope] = attribute
-            return attribute
+        var table = StyleTable<ResolvedStyle>(resolve: theme.resolvedStyle(for:))
+        let preStyle = "background-color:\(theme.background.css);color:\(theme.foreground.css)"
+        return renderHTML(options: options, preStyle: preStyle, table: &table, paintsOnlyGlyphs: \.paintsOnlyGlyphs) {
+            let css = $0.cssDeclarations(defaultForeground: theme.foreground)
+            return css.isEmpty ? nil : "style=\"\(css)\""
         }
     }
 
     /// HTML with scope class names (`<span class="hl-string">`); style it with ``Theme/css(options:)``.
     func html(options: HTMLOptions = HTMLOptions()) -> String {
-        var cache: [UInt32: String] = [:]
-        return renderHTML(options: options, preStyle: nil) { scope in
-            if let cached = cache[scope] { return cached }
-            let attribute = "class=\"\(Scope(id: scope).cssClass(prefix: options.classPrefix))\""
-            cache[scope] = attribute
-            return attribute
+        var table = StyleTable<UInt32> { $0 }
+        return renderHTML(options: options, preStyle: nil, table: &table, paintsOnlyGlyphs: { _ in false }) {
+            $0 == 0 ? nil : "class=\"\(Scope(id: $0).cssClass(prefix: options.classPrefix))\""
         }
     }
 
-    private func renderHTML(options: HTMLOptions, preStyle: String?, attribute: (UInt32) -> String?) -> String {
+    private func renderHTML<Style: Hashable>(options: HTMLOptions, preStyle: String?, table: inout StyleTable<Style>,
+                                             paintsOnlyGlyphs: (Style) -> Bool,
+                                             attribute: (Style) -> String?) -> String {
         var output: [UInt8] = []
         output.reserveCapacity(source.utf8.count * 2)
         if options.wrapInPre {
@@ -51,16 +47,13 @@ public extension HighlightedCode {
         }
         var source = source
         source.withUTF8 { bytes in
-            var runs = RunIterator(tokens: tokens, byteCount: bytes.count)
-            while let (range, scope) = runs.next() {
-                let open = scope == 0 ? nil : attribute(scope)
-                if let open {
-                    output += Array("<span ".utf8)
-                    output += Array(open.utf8)
-                    output.append(UInt8(ascii: ">"))
-                }
+            let runs = StyledRuns(tokens: tokens, bytes: bytes, table: &table, paintsOnlyGlyphs: paintsOnlyGlyphs)
+            let openings = table.styles.map { style in attribute(style).map { Array("<span \($0)>".utf8) } }
+            let close = Array("</span>".utf8)
+            for (range, style) in zip(runs.ranges, runs.styles) {
+                if let open = openings[style] { output += open }
                 HTMLEscaping.appendEscaped(bytes, range, to: &output)
-                if open != nil { output += Array("</span>".utf8) }
+                if openings[style] != nil { output += close }
             }
         }
         if options.wrapInPre { output += Array("</code></pre>".utf8) }

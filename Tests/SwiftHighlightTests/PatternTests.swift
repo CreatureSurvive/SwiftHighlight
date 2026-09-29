@@ -3,9 +3,11 @@ import Testing
 
 /// Compiles `pattern` and runs it anchored at `offset` of `input`.
 /// Returns the match length and captured group texts, or nil for no match.
-func run(_ pattern: String, _ input: String, at offset: Int = 0, delimiter: String = "") throws -> (length: Int, groups: [String?])? {
+func run(_ pattern: String, _ input: String, at offset: Int = 0, delimiter: String = "",
+         possessify: Bool = true) throws -> (length: Int, groups: [String?])? {
     let (node, groups) = try PatternParser.parse(pattern)
     var generator = CodeGenerator(builder: ProgramBuilder(), groups: groups, pattern: pattern)
+    generator.possessify = possessify
     try generator.generate(node)
     generator.builder.emit(Instruction(op: .match))
     let program = Program(builder: generator.builder)
@@ -149,5 +151,24 @@ struct PatternTests {
         }
         #expect(try length("a{", "a{") == 2)
         #expect(try length("a{x}", "a{x}") == 4)
+    }
+}
+
+@Suite("Auto-possessification")
+struct PossessiveTests {
+    /// Each pattern is compiled with possessification; its results must match plain backtracking.
+    @Test func sameResultsAsBacktracking() throws {
+        let cases: [(String, String)] = [
+            (#"\w+(?=\()"#, "call(x)"), (#"\w+(?=\()"#, "call x"), (#"\d+\b"#, "123abc"), (#"\d+\b"#, "123 "),
+            (#"[a-z]+:"#, "key: v"), (#"[a-z]+ing"#, "going"), (#"\s+(\w+)"#, "   word"), (#"a+$"#, "aaa"),
+            (#"a+$"#, "aab"), (#"[^"]*""#, #"abc"d"#), (#"\w+(?!\()"#, "abc("), (#"x*(?:y|x)"#, "xxy"),
+            (#"x*(?:y|z)?"#, "xxx"), (#"[a-z]+\B"#, "abc"), (#"[0-9]+(?=[a-z])"#, "12ab"),
+        ]
+        for (pattern, input) in cases {
+            let result = try run(pattern, input)
+            let reference = try run(pattern, input, possessify: false)
+            #expect(result?.length == reference?.length, "\(pattern) on \(input)")
+            #expect(result?.groups == reference?.groups, "\(pattern) on \(input)")
+        }
     }
 }

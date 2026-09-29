@@ -18,9 +18,14 @@ public final class Language: Hashable, Sendable, CustomStringConvertible {
     let tables: LanguageTables
 
     /// Compiles `grammar`, validating every pattern and state reference.
-    public init(_ grammar: Grammar) throws(GrammarError) {
+    public convenience init(_ grammar: Grammar) throws(GrammarError) {
+        try self.init(grammar, possessify: true)
+    }
+
+    init(_ grammar: Grammar, possessify: Bool) throws(GrammarError) {
         self.grammar = grammar
         var compiler = GrammarCompiler(grammar: grammar)
+        compiler.possessify = possessify
         let result = try compiler.compile()
         program = result.program
         tables = result.tables
@@ -102,6 +107,10 @@ struct CompiledRule {
     /// the pattern. Length 0 when fewer than two bytes are known.
     var prefixOffset: Int32 = 0
     var prefixLength: Int32 = 0
+    /// The pattern is exactly its prefix: matching it needs no bytecode.
+    var isLiteral = false
+    /// For keyword rules, the keyword table; -1 otherwise.
+    var wordsTable: Int32 = -1
 }
 
 struct CompiledState {
@@ -139,12 +148,19 @@ final class LanguageTables: @unchecked Sendable {
     let stateNames: [String]
     /// Characters of a word: unmatched text is skipped a word at a time.
     let wordMap: ByteMap
+    /// When the identifier pattern is "one of `identifierStart`, then any of `identifierRest`",
+    /// keyword rules scan identifiers directly instead of running bytecode.
+    let identifierStart: ByteSet?
+    let identifierRest: ByteSet
     let firstLinePC: Int32
     let firstLineSlots: Int
 
     init(states: [CompiledState], rules: [CompiledRule], captures: [(Int32, UInt32)], dispatchOffsets: [Int32],
          dispatchRules: [Int32], prefixes: [UInt8], byteClasses: [UInt8], embedNames: [String], stateNames: [String],
-         wordMap: ByteMap, firstLinePC: Int32, firstLineSlots: Int) {
+         wordMap: ByteMap, identifierStart: ByteSet?, identifierRest: ByteSet, firstLinePC: Int32,
+         firstLineSlots: Int) {
+        self.identifierStart = identifierStart
+        self.identifierRest = identifierRest
         self.prefixes = Self.freeze(prefixes)
         self.byteClasses = Self.freeze(byteClasses)
         self.states = Self.freeze(states)
@@ -180,6 +196,7 @@ final class LanguageTables: @unchecked Sendable {
 
 struct GrammarCompiler {
     let grammar: Grammar
+    var possessify = true
     private var builder = ProgramBuilder()
     private var stateNames: [String] = []
     private var stateIndex: [String: Int32] = [:]
@@ -275,6 +292,19 @@ struct GrammarCompiler {
                                         dispatchBase: base, starts: starts, classBase: classBase))
         }
 
+        // Identifiers of the form [start][rest]* (or [rest]+) can be scanned without bytecode.
+        var identifierSets: (start: ByteSet, rest: ByteSet)?
+        switch identifier {
+        case let .sequence(items) where items.count == 2:
+            if case let .set(start) = items[0], case let .repeated(.set(rest), 0, nil, _) = items[1] {
+                identifierSets = (start, rest)
+            }
+        case let .repeated(.set(rest), 1, nil, _):
+            identifierSets = (rest, rest)
+        default:
+            break
+        }
+
         var firstLinePC: Int32 = -1
         var firstLineSlots = 0
         if let pattern = grammar.firstLinePattern {
@@ -285,8 +315,9 @@ struct GrammarCompiler {
 
         let tables = LanguageTables(states: states, rules: rules, captures: captures, dispatchOffsets: dispatchOffsets,
                                     dispatchRules: dispatchRules, prefixes: prefixes, byteClasses: byteClasses,
-                                    embedNames: embedNames, stateNames: stateNames,
-                                    wordMap: ByteMap(wordSet), firstLinePC: firstLinePC, firstLineSlots: firstLineSlots)
+                                    embedNames: embedNames, stateNames: stateNames, wordMap: ByteMap(wordSet),
+                                    identifierStart: identifierSets?.start, identifierRest: identifierSets?.rest ?? ByteSet(),
+                                    firstLinePC: firstLinePC, firstLineSlots: firstLineSlots)
         return (Program(builder: builder), tables)
     }
 
@@ -315,6 +346,7 @@ struct GrammarCompiler {
         do {
             let (node, groups) = try PatternParser.parse(pattern)
             var generator = CodeGenerator(builder: builder, groups: groups, pattern: pattern)
+            generator.possessify = possessify
             let pc = generator.builder.nextPC
             try generator.generate(node)
             generator.builder.emit(Instruction(op: .match))
@@ -332,18 +364,19 @@ struct GrammarCompiler {
 
     private mutating func compileWordsRun(_ run: [Rule], state: String, position: Int) throws(GrammarError) -> Int32 {
         let groups = run.map { (words: $0.words ?? [], scope: $0.scope?.id ?? 0) }
-        let pc = try compileWords(groups, caseInsensitive: run[0].caseInsensitive ?? false)
+        let (pc, table) = try compileWords(groups, caseInsensitive: run[0].caseInsensitive ?? false)
         let (map, nullable) = identifier.firstBytes
         let index = Int32(rules.count)
         rules.append(CompiledRule(pc: pc, slotCount: 2, scope: 0, captureStart: 0, captureCount: 0, action: .none,
                                   target: -1, delimiterGroup: -1, embedName: 0, endPC: -1, endSlotCount: 0,
                                   endScope: 0, endCaptureStart: 0, endCaptureCount: 0, endFirst: ByteMap(),
-                                  isWords: true))
+                                  isWords: true, wordsTable: table))
         ruleFirst.append(nullable ? .all : map)
         return index
     }
 
-    private mutating func compileWords(_ groups: [(words: [String], scope: UInt32)], caseInsensitive: Bool) throws(GrammarError) -> Int32 {
+    private mutating func compileWords(_ groups: [(words: [String], scope: UInt32)], caseInsensitive: Bool) throws(GrammarError)
+        -> (pc: Int32, table: Int32) {
         let table = builder.addKeywordTable(groups, caseInsensitive: caseInsensitive)
         var generator = CodeGenerator(builder: builder, groups: 0, pattern: "<identifier>")
         let pc = generator.builder.nextPC
@@ -355,7 +388,7 @@ struct GrammarCompiler {
         generator.builder.emit(Instruction(op: .words, flag: caseInsensitive ? 1 : 0, a: table))
         generator.builder.emit(Instruction(op: .match))
         builder = generator.builder
-        return pc
+        return (pc, table)
     }
 
     private mutating func internCaptures(_ map: [Int: Scope]?, groups: Int, state: String, position: Int) throws(GrammarError)
@@ -391,7 +424,8 @@ struct GrammarCompiler {
                 throw failure("A rule has either `match` or `words`, not both", state: state, rule: position)
             }
             guard !words.isEmpty else { throw failure("Empty `words` list", state: state, rule: position) }
-            compiled.pc = try compileWords([(words, rule.scope?.id ?? 0)], caseInsensitive: rule.caseInsensitive ?? false)
+            (compiled.pc, compiled.wordsTable) = try compileWords([(words, rule.scope?.id ?? 0)],
+                                                                  caseInsensitive: rule.caseInsensitive ?? false)
             let (map, nullable) = identifier.firstBytes
             first = nullable ? .all : map
         } else if let pattern = rule.match {
@@ -399,11 +433,18 @@ struct GrammarCompiler {
             compiled.pc = result.pc
             compiled.slotCount = result.slots
             groups = result.groups
-            let prefix = result.node.requiredPrefix()
-            if prefix.count >= 2 {
+            if case let .literal(bytes, false) = result.node, !bytes.isEmpty {
                 compiled.prefixOffset = Int32(prefixes.count)
-                compiled.prefixLength = Int32(prefix.count)
-                prefixes += prefix
+                compiled.prefixLength = Int32(bytes.count)
+                compiled.isLiteral = true
+                prefixes += bytes
+            } else {
+                let prefix = result.node.requiredPrefix()
+                if prefix.count >= 2 {
+                    compiled.prefixOffset = Int32(prefixes.count)
+                    compiled.prefixLength = Int32(prefix.count)
+                    prefixes += prefix
+                }
             }
             let (map, nullable) = result.node.firstBytes
             first = nullable ? .all : map

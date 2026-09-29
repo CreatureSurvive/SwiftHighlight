@@ -56,6 +56,8 @@ final class Tokenizer {
         var prefixes: UnsafeMutablePointer<UInt8>
         var byteClasses: UnsafeMutablePointer<UInt8>
         var wordMap: ByteMap
+        var identifierStart: ByteSet?
+        var identifierRest: ByteSet
         var state: CompiledState
         var top: Int
         /// Index of the innermost embedded language's root frame, or -1.
@@ -82,7 +84,7 @@ final class Tokenizer {
             captures: tables.captures.baseAddress!, dispatchOffsets: tables.dispatchOffsets.baseAddress!,
             dispatchRules: tables.dispatchRules.baseAddress!, prefixes: tables.prefixes.baseAddress!,
             byteClasses: tables.byteClasses.baseAddress! + Int(tables.states[Int(frame.state)].classBase),
-            wordMap: tables.wordMap,
+            wordMap: tables.wordMap, identifierStart: tables.identifierStart, identifierRest: tables.identifierRest,
             state: tables.states[Int(frame.state)], top: top, embedIndex: -1, embedProgram: nil, embedRule: nil,
             embedCaptures: nil, embedFirst: ByteMap())
         var index = top
@@ -178,15 +180,41 @@ final class Tokenizer {
                         || memcmp(base + pos, ctx.prefixes + Int(rule.pointee.prefixOffset), prefixLength) != 0 {
                         continue
                     }
-                    if delimiterOwner != ctx.top {
-                        matcher.delimiter = frames[ctx.top].delimiter
-                        delimiterOwner = ctx.top
-                    }
-                    let matchEnd = matcher.match(ctx.program, pc: rule.pointee.pc, at: pos,
+                    var matchEnd: Int
+                    var wordScope: UInt32 = 0
+                    if rule.pointee.isLiteral {
+                        matchEnd = pos &+ prefixLength
+                    } else if rule.pointee.wordsTable >= 0, let identifierStart = ctx.identifierStart {
+                        // Scan the identifier and look it up without running bytecode.
+                        matchEnd = -1
+                        if Self.step(identifierStart, base, pos, end) > pos {
+                            var scan = Self.step(identifierStart, base, pos, end)
+                            let rest = ctx.identifierRest
+                            while true {
+                                let next = Self.step(rest, base, scan, end)
+                                if next < 0 { break }
+                                scan = next
+                            }
+                            let scope = lookupKeyword(ctx.program, table: Int(rule.pointee.wordsTable), input: base,
+                                                      start: pos, end: scan)
+                            if scope != notAKeyword {
+                                matchEnd = scan
+                                wordScope = scope
+                            }
+                        }
+                        if matchEnd < 0 { continue }
+                    } else {
+                        if delimiterOwner != ctx.top {
+                            matcher.delimiter = frames[ctx.top].delimiter
+                            delimiterOwner = ctx.top
+                        }
+                        matchEnd = matcher.match(ctx.program, pc: rule.pointee.pc, at: pos,
                                                  slotCount: Int(rule.pointee.slotCount))
-                    if matchEnd < 0 {
-                        if matcher.exhausted { continue scanning }
-                        continue
+                        if matchEnd < 0 {
+                            if matcher.exhausted { continue scanning }
+                            continue
+                        }
+                        if rule.pointee.isWords { wordScope = matcher.wordScope }
                     }
                     if matchEnd == pos {
                         if rule.pointee.action == .none || zeroWidth >= 8 { continue }
@@ -195,7 +223,7 @@ final class Tokenizer {
                         zeroWidth = 0
                     }
                     if rule.pointee.action == .none {
-                        let scope = rule.pointee.isWords ? matcher.wordScope : rule.pointee.scope
+                        let scope = rule.pointee.isWords ? wordScope : rule.pointee.scope
                         if rule.pointee.captureCount == 0 {
                             Self.emit(pos, matchEnd, scope != 0 ? scope : ctx.state.scope, into: &tokens)
                         } else {
@@ -203,7 +231,8 @@ final class Tokenizer {
                                       start: rule.pointee.captureStart, count: rule.pointee.captureCount, into: &tokens)
                         }
                     } else {
-                        apply(rule.pointee, index: ruleIndex, context: ctx, start: pos, end: matchEnd, into: &tokens)
+                        apply(rule.pointee, index: ruleIndex, wordScope: wordScope, context: ctx, start: pos,
+                              end: matchEnd, into: &tokens)
                         ctx = context()
                         delimiterOwner = -1
                     }
@@ -257,10 +286,9 @@ final class Tokenizer {
 
     // MARK: Actions
 
-    private func apply(_ rule: CompiledRule, index: Int32, context ctx: Context, start: Int, end: Int,
+    private func apply(_ rule: CompiledRule, index: Int32, wordScope: UInt32, context ctx: Context, start: Int, end: Int,
                        into tokens: inout [Token]) {
         let current = ctx.top
-        let wordScope = rule.isWords ? matcher.wordScope : 0
         let ruleScope = wordScope != 0 ? wordScope : rule.scope
         switch rule.action {
         case .none:
@@ -322,6 +350,15 @@ final class Tokenizer {
         let upper = matcher.slots[group * 2 + 1]
         guard lower >= 0, upper > lower else { return "" }
         return String(decoding: UnsafeBufferPointer(start: matcher.input + lower, count: upper - lower), as: UTF8.self)
+    }
+
+    /// Consumes one scalar in `set` at `pos`; returns the new position, or -1.
+    @inline(__always)
+    private static func step(_ set: ByteSet, _ base: UnsafePointer<UInt8>, _ pos: Int, _ end: Int) -> Int {
+        guard pos < end else { return -1 }
+        let byte = base[pos]
+        if byte < 0x80 { return set.contains(byte) ? pos &+ 1 : -1 }
+        return set.nonASCII ? min(pos &+ scalarLength(byte), end) : -1
     }
 
     // MARK: Emitting

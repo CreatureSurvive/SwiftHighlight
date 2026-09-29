@@ -93,14 +93,43 @@ struct FontVariants {
     }
 }
 
+struct AdaptiveStyle: Hashable {
+    var light: ResolvedStyle
+    var dark: ResolvedStyle
+
+    var paintsOnlyGlyphs: Bool { light.paintsOnlyGlyphs && dark.paintsOnlyGlyphs }
+}
+
+extension AdaptiveTheme {
+    func adaptiveStyle(for scope: UInt32) -> AdaptiveStyle {
+        scope == 0
+            ? AdaptiveStyle(light: light.defaultStyle, dark: dark.defaultStyle)
+            : AdaptiveStyle(light: light.style(for: Scope(id: scope)), dark: dark.style(for: Scope(id: scope)))
+    }
+}
+
+extension Theme {
+    func resolvedStyle(for scope: UInt32) -> ResolvedStyle {
+        scope == 0 ? defaultStyle : style(for: Scope(id: scope))
+    }
+}
+
 public extension HighlightedCode {
     /// The code as an `NSAttributedString` for `UITextView`, `UILabel`, `NSTextView` and friends.
     ///
     /// Bold and italic scopes use variants of `font`. Unscoped text gets the theme foreground.
     func nsAttributedString(theme: Theme, font: PlatformFont) -> NSAttributedString {
-        buildNSAttributedString(font: font, foreground: theme.foreground.platformColor) { scope in
-            let style = scope == 0 ? theme.defaultStyle : theme.style(for: Scope(id: scope))
-            return (style, style.foreground.platformColor, style.background?.platformColor)
+        var fonts = FontVariants(font)
+        var table = StyleTable<ResolvedStyle>(resolve: theme.resolvedStyle(for:))
+        return buildAttributed(table: &table, paintsOnlyGlyphs: \.paintsOnlyGlyphs) { style in
+            var attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: style.foreground.platformColor,
+                .font: fonts.font(bold: style.bold, italic: style.italic),
+            ]
+            if let background = style.background { attributes[.backgroundColor] = background.platformColor }
+            if style.underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if style.strikethrough { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            return attributes
         }
     }
 
@@ -108,56 +137,46 @@ public extension HighlightedCode {
     ///
     /// Font weight and slant come from the light theme's styles.
     func nsAttributedString(theme: AdaptiveTheme, font: PlatformFont) -> NSAttributedString {
-        buildNSAttributedString(font: font, foreground: theme.platformForeground) { scope in
-            let light = scope == 0 ? theme.light.defaultStyle : theme.light.style(for: Scope(id: scope))
-            let dark = scope == 0 ? theme.dark.defaultStyle : theme.dark.style(for: Scope(id: scope))
-            let background: PlatformColor? = switch (light.background, dark.background) {
-            case (nil, nil): nil
-            case let (lightBackground, darkBackground):
-                ThemeColor.dynamic(light: lightBackground ?? ThemeColor(rgb: 0, alpha: 0),
-                                   dark: darkBackground ?? ThemeColor(rgb: 0, alpha: 0))
+        var fonts = FontVariants(font)
+        var table = StyleTable<AdaptiveStyle>(resolve: theme.adaptiveStyle(for:))
+        return buildAttributed(table: &table, paintsOnlyGlyphs: \.paintsOnlyGlyphs) { style in
+            var attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: ThemeColor.dynamic(light: style.light.foreground, dark: style.dark.foreground),
+                .font: fonts.font(bold: style.light.bold, italic: style.light.italic),
+            ]
+            if style.light.background != nil || style.dark.background != nil {
+                let clear = ThemeColor(rgb: 0, alpha: 0)
+                attributes[.backgroundColor] = ThemeColor.dynamic(light: style.light.background ?? clear,
+                                                                  dark: style.dark.background ?? clear)
             }
-            return (light, ThemeColor.dynamic(light: light.foreground, dark: dark.foreground), background)
+            if style.light.underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if style.light.strikethrough { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            return attributes
         }
     }
 
-    private func buildNSAttributedString(
-        font: PlatformFont,
-        foreground: PlatformColor,
-        resolve: (UInt32) -> (ResolvedStyle, PlatformColor, PlatformColor?)
-    ) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: source, attributes: [.font: font, .foregroundColor: foreground])
-        guard !tokens.isEmpty else { return result }
-        var fonts = FontVariants(font)
-        var cache: [UInt32: [NSAttributedString.Key: Any]] = [:]
-        var utf16Position = 0
-        var bytePosition = 0
+    /// Builds an attributed string run by run. Attribute dictionaries are made once per distinct
+    /// style and applied through CoreFoundation, which skips per-call dictionary bridging.
+    internal func buildAttributed<Style: Hashable>(
+        table: inout StyleTable<Style>,
+        paintsOnlyGlyphs: (Style) -> Bool,
+        attributes: (Style) -> [NSAttributedString.Key: Any]
+    ) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(string: source)
         var source = source
+        let runs = source.withUTF8 { bytes in
+            StyledRuns(tokens: tokens, bytes: bytes, table: &table, paintsOnlyGlyphs: paintsOnlyGlyphs)
+        }
+        let dictionaries = table.styles.map { attributes($0) as CFDictionary }
+        let target = result as CFMutableAttributedString
         result.beginEditing()
         source.withUTF8 { bytes in
-            for token in tokens {
-                guard token.range.upperBound <= bytes.count, token.range.lowerBound >= bytePosition else { continue }
-                utf16Position += utf16Length(bytes, bytePosition..<token.range.lowerBound)
-                let length = utf16Length(bytes, token.range)
-                bytePosition = token.range.upperBound
-                defer { utf16Position += length }
-
-                let attributes: [NSAttributedString.Key: Any]
-                if let cached = cache[token.scope.id] {
-                    attributes = cached
-                } else {
-                    let (style, color, background) = resolve(token.scope.id)
-                    var built: [NSAttributedString.Key: Any] = [
-                        .foregroundColor: color,
-                        .font: fonts.font(bold: style.bold, italic: style.italic),
-                    ]
-                    if let background { built[.backgroundColor] = background }
-                    if style.underline { built[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-                    if style.strikethrough { built[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-                    cache[token.scope.id] = built
-                    attributes = built
-                }
-                result.addAttributes(attributes, range: NSRange(location: utf16Position, length: length))
+            var location = 0
+            for (range, style) in zip(runs.ranges, runs.styles) {
+                let length = utf16Length(bytes, range)
+                CFAttributedStringSetAttributes(target, CFRange(location: location, length: length),
+                                                dictionaries[style], true)
+                location += length
             }
         }
         result.endEditing()

@@ -283,4 +283,14 @@ struct LanguageTests {
         #expect(pairs.contains("# after→markup.heading"))
         #expect(!pairs.contains { $0.hasPrefix("if→") })
     }
+
+    /// Every built-in grammar must tokenize its sample identically with and without
+    /// auto-possessification.
+    @Test func possessificationPreservesTokens() throws {
+        for (id, code, _) in Self.samples {
+            let grammar = try #require(Grammar.builtin(id))
+            let plain = try Language(grammar, possessify: false)
+            #expect(builtin(id).tokenize(code) == plain.tokenize(code), "\(id)")
+        }
+    }
 }

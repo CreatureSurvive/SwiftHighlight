@@ -39,9 +39,9 @@ public extension HighlightedCode {
     /// Bold and italic use inline presentation intents, so they combine with whatever font the
     /// `Text` uses (typically `.monospaced()`).
     func attributedString(theme: Theme) -> AttributedString {
-        buildAttributedString { scope in
-            let style = scope == 0 ? theme.defaultStyle : theme.style(for: Scope(id: scope))
-            return Self.container(style, foreground: style.foreground.color, background: style.background?.color)
+        var table = StyleTable<ResolvedStyle>(resolve: theme.resolvedStyle(for:))
+        return buildAttributedString(table: &table, paintsOnlyGlyphs: \.paintsOnlyGlyphs) { style in
+            Self.container(style, foreground: style.foreground.color, background: style.background?.color)
         }
     }
 
@@ -50,17 +50,17 @@ public extension HighlightedCode {
     ///
     /// Font weight and slant come from the light theme's styles.
     func attributedString(theme: AdaptiveTheme) -> AttributedString {
-        buildAttributedString { scope in
-            let light = scope == 0 ? theme.light.defaultStyle : theme.light.style(for: Scope(id: scope))
-            let dark = scope == 0 ? theme.dark.defaultStyle : theme.dark.style(for: Scope(id: scope))
-            let foreground = Color(platformColor: ThemeColor.dynamic(light: light.foreground, dark: dark.foreground))
+        var table = StyleTable<AdaptiveStyle>(resolve: theme.adaptiveStyle(for:))
+        return buildAttributedString(table: &table, paintsOnlyGlyphs: \.paintsOnlyGlyphs) { style in
+            let foreground = Color(platformColor: ThemeColor.dynamic(light: style.light.foreground,
+                                                                     dark: style.dark.foreground))
             var background: Color?
-            if light.background != nil || dark.background != nil {
+            if style.light.background != nil || style.dark.background != nil {
                 let clear = ThemeColor(rgb: 0, alpha: 0)
-                background = Color(platformColor: ThemeColor.dynamic(light: light.background ?? clear,
-                                                                     dark: dark.background ?? clear))
+                background = Color(platformColor: ThemeColor.dynamic(light: style.light.background ?? clear,
+                                                                     dark: style.dark.background ?? clear))
             }
-            return Self.container(light, foreground: foreground, background: background)
+            return Self.container(style.light, foreground: foreground, background: background)
         }
     }
     #endif
@@ -78,28 +78,49 @@ public extension HighlightedCode {
         return container
     }
 
-    private func buildAttributedString(_ attributes: (UInt32) -> AttributeContainer) -> AttributedString {
-        var cache: [UInt32: AttributeContainer] = [:]
+    #if canImport(UIKit) || canImport(AppKit)
+    /// Builds through `NSAttributedString` and converts once: several times faster than
+    /// assembling an `AttributedString` run by run.
+    private func buildAttributedString<Style: Hashable>(
+        table: inout StyleTable<Style>,
+        paintsOnlyGlyphs: (Style) -> Bool,
+        container: (Style) -> AttributeContainer
+    ) -> AttributedString {
+        let built = buildAttributed(table: &table, paintsOnlyGlyphs: paintsOnlyGlyphs) { style in
+            // Let Foundation name each attribute the way SwiftUI's scope expects.
+            let sample = AttributedString(" ", attributes: container(style))
+            guard let converted = try? NSAttributedString(sample, including: \.swiftUI), converted.length > 0 else {
+                return [:]
+            }
+            return converted.attributes(at: 0, effectiveRange: nil)
+        }
+        return (try? AttributedString(built, including: \.swiftUI)) ?? AttributedString(source)
+    }
+    #else
+    private func buildAttributedString<Style: Hashable>(
+        table: inout StyleTable<Style>,
+        paintsOnlyGlyphs: (Style) -> Bool,
+        container: (Style) -> AttributeContainer
+    ) -> AttributedString {
+        var containers: [Int: AttributeContainer] = [:]
         var result = AttributedString()
+        var text = source
+        let runs = text.withUTF8 { bytes in
+            StyledRuns(tokens: tokens, bytes: bytes, table: &table, paintsOnlyGlyphs: paintsOnlyGlyphs)
+        }
         let utf8 = source.utf8
         var index = utf8.startIndex
         var offset = 0
-        var runs = RunIterator(tokens: tokens, byteCount: utf8.count)
-        while let (range, scope) = runs.next() {
+        for (range, style) in zip(runs.ranges, runs.styles) {
             let lower = utf8.index(index, offsetBy: range.lowerBound - offset)
             let upper = utf8.index(lower, offsetBy: range.count)
             index = upper
             offset = range.upperBound
-            let container: AttributeContainer
-            if let cached = cache[scope] {
-                container = cached
-            } else {
-                container = attributes(scope)
-                cache[scope] = container
-            }
-            result.append(AttributedString(source[lower..<upper], attributes: container))
+            if containers[style] == nil { containers[style] = container(table.styles[style]) }
+            result.append(AttributedString(source[lower..<upper], attributes: containers[style]!))
         }
         return result
     }
+    #endif
 }
 #endif

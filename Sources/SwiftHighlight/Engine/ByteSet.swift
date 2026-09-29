@@ -164,6 +164,22 @@ struct ByteMap: Hashable, Sendable {
     }
 
     var isEmpty: Bool { words.0 == 0 && words.1 == 0 && words.2 == 0 && words.3 == 0 }
+
+    func union(_ other: ByteMap) -> ByteMap {
+        var copy = self
+        copy.formUnion(other)
+        return copy
+    }
+
+    func isDisjoint(with other: ByteMap) -> Bool {
+        words.0 & other.words.0 == 0 && words.1 & other.words.1 == 0 && words.2 & other.words.2 == 0
+            && words.3 & other.words.3 == 0
+    }
+
+    func isSubset(of other: ByteMap) -> Bool {
+        words.0 & ~other.words.0 == 0 && words.1 & ~other.words.1 == 0 && words.2 & ~other.words.2 == 0
+            && words.3 & ~other.words.3 == 0
+    }
 }
 
 /// Length of the UTF-8 scalar introduced by `lead`; 1 for ASCII and for stray continuation bytes.

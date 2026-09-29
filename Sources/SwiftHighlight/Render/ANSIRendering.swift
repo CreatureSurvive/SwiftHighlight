@@ -11,43 +11,42 @@ public extension HighlightedCode {
     ///
     /// The theme background is not painted; unscoped text uses the terminal's own foreground.
     func ansi(theme: Theme, colors: ANSIColors = .trueColor) -> String {
-        var cache: [UInt32: String] = [:]
-        var output = ""
-        output.reserveCapacity(source.utf8.count * 2)
-        let utf8 = source.utf8
-        var index = utf8.startIndex
-        var offset = 0
-        var runs = RunIterator(tokens: tokens, byteCount: utf8.count)
-        while let (range, scope) = runs.next() {
-            let lower = utf8.index(index, offsetBy: range.lowerBound - offset)
-            let upper = utf8.index(lower, offsetBy: range.count)
-            index = upper
-            offset = range.upperBound
-            let text = source[lower..<upper]
-            guard scope != 0 else {
-                output += text
-                continue
+        var table = StyleTable<ResolvedStyle>(resolve: theme.resolvedStyle(for:))
+        var text = source
+        return text.withUTF8 { bytes -> String in
+            let runs = StyledRuns(tokens: tokens, bytes: bytes, table: &table, paintsOnlyGlyphs: \.paintsOnlyGlyphs)
+            // Style 0 (unscoped) keeps the terminal's own colors.
+            let openings = table.styles.enumerated().map {
+                $0.offset == 0 ? [] : Array(Self.escape($0.element, colors: colors).utf8)
             }
-            let open: String
-            if let cached = cache[scope] {
-                open = cached
-            } else {
-                open = Self.escape(theme.style(for: Scope(id: scope)), colors: colors)
-                cache[scope] = open
+            let reset = Array("\u{1B}[0m".utf8)
+            var output: [UInt8] = []
+            output.reserveCapacity(bytes.count * 3)
+            for (range, style) in zip(runs.ranges, runs.styles) {
+                let open = openings[style]
+                if open.isEmpty {
+                    output.append(contentsOf: UnsafeBufferPointer(rebasing: bytes[range]))
+                    continue
+                }
+                // Close before each line break and reopen after it, so pagers that reset per
+                // line keep the color.
+                var lineStart = range.lowerBound
+                var index = range.lowerBound
+                while index <= range.upperBound {
+                    if index == range.upperBound || bytes[index] == 0x0A {
+                        if index > lineStart {
+                            output += open
+                            output.append(contentsOf: UnsafeBufferPointer(rebasing: bytes[lineStart..<index]))
+                            output += reset
+                        }
+                        if index < range.upperBound { output.append(0x0A) }
+                        lineStart = index + 1
+                    }
+                    index += 1
+                }
             }
-            if open.isEmpty {
-                output += text
-                continue
-            }
-            // Re-open after each line break so pagers that reset per line keep the color.
-            var first = true
-            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-                if !first { output += "\n" }
-                first = false
-                if !line.isEmpty { output += open + line + "\u{1B}[0m" }
-            }
+            return String(decoding: output, as: UTF8.self)
         }
-        return output
     }
 
     private static func escape(_ style: ResolvedStyle, colors: ANSIColors) -> String {

@@ -214,6 +214,9 @@ struct CodeGenerator {
     /// First capture slot free for hidden (empty-loop guard) use.
     var nextHiddenSlot: Int
     let pattern: String
+    /// Turn greedy repeats possessive where that cannot change the result (tests disable it to
+    /// compare against plain backtracking).
+    var possessify = true
 
     init(builder: ProgramBuilder, groups: Int, pattern: String) {
         self.builder = builder
@@ -241,7 +244,17 @@ struct CodeGenerator {
         case .any:
             builder.emit(Instruction(op: .any))
         case let .sequence(items):
-            for item in items { try generate(item) }
+            for (index, item) in items.enumerated() {
+                // Auto-possessification: a greedy single-scalar repeat whose continuation can
+                // never start with a character it consumed will never profitably give one back,
+                // so it need not leave backtrack points (`\w+(?=\()` tries the lookahead once).
+                if possessify, case let .repeated(inner, min, max, .greedy) = item, let set = scalarSet(inner),
+                   let next = Self.startSet(of: items[(index + 1)...], after: set), next.isDisjoint(with: ByteMap(set)) {
+                    try generate(.repeated(inner, min: min, max: max, mode: .possessive))
+                } else {
+                    try generate(item)
+                }
+            }
         case let .alternation(branches):
             try generateAlternation(branches[...])
         case let .repeated(inner, min, max, mode):
@@ -333,8 +346,63 @@ struct CodeGenerator {
         }
     }
 
+    /// Bytes at which any match of `items` must begin, when that is knowable; `nil` when the
+    /// continuation could match empty, look back, or depends on captured text. `repeated` is the
+    /// set of the repeat right before `items`: anchors that must fail inside such a run (`\b`
+    /// after word characters, `$`) count as matching nothing.
+    static func startSet(of items: ArraySlice<PatternNode>, after repeated: ByteSet) -> ByteMap? {
+        guard let first = items.first else { return nil }
+        let rest = items.dropFirst()
+        switch first {
+        case let .literal(bytes, _):
+            guard !bytes.isEmpty else { return startSet(of: rest, after: repeated) }
+            return first.firstBytes.map
+        case .set, .any:
+            return first.firstBytes.map
+        case .empty:
+            return startSet(of: rest, after: repeated)
+        case let .anchor(kind):
+            switch kind {
+            case .lineEnd, .lineStart:
+                return ByteMap()
+            case .wordBoundary:
+                // Inside a run of word characters there is no boundary.
+                let words = ByteMap(ByteSet.word)
+                return ByteMap(repeated).isSubset(of: words) ? ByteMap() : nil
+            case .notWordBoundary:
+                return nil
+            }
+        case let .look(body, true, false):
+            let (map, nullable) = body.firstBytes
+            return nullable ? nil : map
+        case let .group(_, inner), let .atomic(inner):
+            if case let .sequence(inside) = inner {
+                return startSet(of: inside[...] + rest, after: repeated)
+            }
+            return startSet(of: [inner][...] + rest, after: repeated)
+        case let .alternation(branches):
+            var union = ByteMap()
+            for branch in branches {
+                let items: ArraySlice<PatternNode>
+                if case let .sequence(inside) = branch { items = inside[...] + rest } else { items = [branch][...] + rest }
+                guard let branchSet = startSet(of: items, after: repeated) else { return nil }
+                union.formUnion(branchSet)
+            }
+            return union
+        case let .repeated(inner, min, _, _):
+            if min >= 1 { return startSet(of: [inner][...], after: repeated) }
+            guard let innerSet = startSet(of: [inner][...], after: repeated),
+                  let restSet = startSet(of: rest, after: repeated) else { return nil }
+            return innerSet.union(restSet)
+        case .sequence(let inside):
+            return startSet(of: inside[...] + rest, after: repeated)
+        case .look, .backreference, .delimiter:
+            return nil
+        }
+    }
+
     /// The set a single-scalar node matches, when it is one; such repeats become one tight loop.
-    private func scalarSet(_ node: PatternNode) -> ByteSet? {
+    func scalarSet(_ node: PatternNode) -> ByteSet? {
         switch node {
         case let .set(set): return set
         case .any: return .all
