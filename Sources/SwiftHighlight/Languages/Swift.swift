@@ -34,7 +34,7 @@ extension BuiltinGrammars {
                 .match(#"//.*"#, .commentLine),
                 .push(#"/\*"#, "blockComment"),
             ],
-            "blockComment": State(scope: .commentBlock, rules: [
+            "blockComment": GrammarState(scope: .commentBlock, rules: [
                 .push(#"/\*"#, "blockComment"),
                 .pop(#"\*/"#),
             ]),
@@ -48,27 +48,27 @@ extension BuiltinGrammars {
                 .push("\"", "string"),
                 .push(#"(#+)/"#, "regex", delimiter: 1),
             ],
-            "string": State(scope: .string, popAtLineEnd: true, rules: [
+            "string": GrammarState(scope: .string, popAtLineEnd: true, rules: [
                 .push(#"\\\("#, "interpolation", scope: .interpolation),
                 .match(#"\\(?:u\{[0-9a-fA-F]{1,8}\}|.)"#, .escape),
                 .pop("\""),
             ]),
-            "multilineString": State(scope: .string, rules: [
+            "multilineString": GrammarState(scope: .string, rules: [
                 .push(#"\\\("#, "interpolation", scope: .interpolation),
                 .match(#"\\(?:u\{[0-9a-fA-F]{1,8}\}|.)"#, .escape),
                 .pop("\"\"\""),
             ]),
-            "rawString": State(scope: .string, popAtLineEnd: true, rules: [
+            "rawString": GrammarState(scope: .string, popAtLineEnd: true, rules: [
                 .push(#"\\\k\("#, "interpolation", scope: .interpolation),
                 .match(#"\\\k(?:u\{[0-9a-fA-F]{1,8}\}|.)"#, .escape),
                 .pop("\"\\k"),
             ]),
-            "rawMultilineString": State(scope: .string, rules: [
+            "rawMultilineString": GrammarState(scope: .string, rules: [
                 .push(#"\\\k\("#, "interpolation", scope: .interpolation),
                 .match(#"\\\k(?:u\{[0-9a-fA-F]{1,8}\}|.)"#, .escape),
                 .pop("\"\"\"\\k"),
             ]),
-            "regex": State(scope: .stringRegex, rules: [
+            "regex": GrammarState(scope: .stringRegex, rules: [
                 .match(#"\\."#, .escape),
                 .pop(#"/\k"#),
             ]),

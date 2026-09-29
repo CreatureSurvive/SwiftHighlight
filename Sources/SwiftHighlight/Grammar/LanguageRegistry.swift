@@ -10,6 +10,13 @@ public final class LanguageRegistry: @unchecked Sendable {
     /// Every built-in language, plus anything registered at runtime.
     public static let shared = LanguageRegistry()
 
+    /// Registered languages, most recent registration last.
+    public var languages: [Language] {
+        lock.lock()
+        defer { lock.unlock() }
+        return order.compactMap { compiled($0) }
+    }
+
     private struct Entry {
         var grammar: Grammar
         var language: Language?
@@ -111,7 +118,8 @@ public final class LanguageRegistry: @unchecked Sendable {
     public func language(named name: String) -> Language? {
         lock.lock()
         defer { lock.unlock() }
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        // Accept a whole fence line: "```swift title=x", "~~~ {.python}".
+        let trimmed = name.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "`~")))
         let label = trimmed.split(whereSeparator: { $0 == " " || $0 == "," || $0 == "\t" }).first.map(String.init) ?? ""
         let cleaned = label.trimmingCharacters(in: CharacterSet(charactersIn: "{}.")).lowercased()
         if let key = names[cleaned] ?? names[trimmed.lowercased()] ?? extensions[cleaned] {
@@ -124,7 +132,7 @@ public final class LanguageRegistry: @unchecked Sendable {
     public func language(forPath path: String) -> Language? {
         lock.lock()
         defer { lock.unlock() }
-        let name = (path as NSString).lastPathComponent.lowercased()
+        let name = String(path.split(separator: "/", omittingEmptySubsequences: true).last ?? "").lowercased()
         if let key = fileNames[name] { return compiled(key) }
         var candidate = name
         // Try compound extensions longest first: `d.ts`, then `ts`.

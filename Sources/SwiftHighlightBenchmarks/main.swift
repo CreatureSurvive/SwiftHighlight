@@ -80,6 +80,17 @@ for (id, corpus) in corpora.sorted(by: { $0.key < $1.key }) {
     if renderers {
         let highlighted = language.highlight(corpus)
         measure("session (build)", bytes: bytes) { HighlightSession(language: language, text: corpus).lineCount }
+        let session = HighlightSession(language: language, text: corpus)
+        let middle = session.lineRange(session.lineCount / 2).lowerBound
+        var edits = 0
+        let editStart = now()
+        while now() - editStart < 0.5 {
+            session.replace(utf8Range: middle..<middle, with: "x")
+            session.replace(utf8Range: middle..<middle + 1, with: "")
+            edits += 2
+        }
+        print(String(format: "  %-28@ %9.2f µs per edit (%d lines)", "session edit (1 char)" as NSString,
+                     (now() - editStart) / Double(edits) * 1e6, session.lineCount))
         measure("html (inline styles)", bytes: bytes) { highlighted.html(theme: .githubDark).utf8.count }
         measure("html (classes)", bytes: bytes) { highlighted.html().utf8.count }
         measure("ansi", bytes: bytes) { highlighted.ansi(theme: .dracula).utf8.count }

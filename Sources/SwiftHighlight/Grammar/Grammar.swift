@@ -22,7 +22,7 @@ import Foundation
 ///             .match(#"^\s*([\w.-]+)\s*(=)"#, captures: [1: .key, 2: .operator]),
 ///             .push(#"""#, "string", scope: .string),
 ///         ],
-///         "string": State(scope: .string, popAtLineEnd: true, rules: [
+///         "string": GrammarState(scope: .string, popAtLineEnd: true, rules: [
 ///             .match(#"\\."#, .escape),
 ///             .pop(#"""#),
 ///         ]),
@@ -52,7 +52,7 @@ public struct Grammar: Codable, Hashable, Sendable {
     /// the middle of a word.
     public var wordCharacters: String?
     /// The states, keyed by name. Must contain `root`.
-    public var states: [String: State]
+    public var states: [String: GrammarState]
 
     public init(
         name: String,
@@ -63,7 +63,7 @@ public struct Grammar: Codable, Hashable, Sendable {
         firstLinePattern: String? = nil,
         identifierPattern: String? = nil,
         wordCharacters: String? = nil,
-        states: [String: State]
+        states: [String: GrammarState]
     ) {
         self.name = name
         self.id = id ?? name.lowercased()
@@ -101,7 +101,7 @@ public struct Grammar: Codable, Hashable, Sendable {
         firstLinePattern = try container.decodeIfPresent(String.self, forKey: .firstLinePattern)
         identifierPattern = try container.decodeIfPresent(String.self, forKey: .identifierPattern)
         wordCharacters = try container.decodeIfPresent(String.self, forKey: .wordCharacters)
-        states = try container.decode([String: State].self, forKey: .states)
+        states = try container.decode([String: GrammarState].self, forKey: .states)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -119,7 +119,7 @@ public struct Grammar: Codable, Hashable, Sendable {
 }
 
 /// One lexical context of a grammar — the top level, inside a string, inside a comment.
-public struct State: Codable, Hashable, Sendable, ExpressibleByArrayLiteral {
+public struct GrammarState: Codable, Hashable, Sendable, ExpressibleByArrayLiteral {
     /// Scope for text in this state that no rule matches (a string's body, a comment's text).
     public var scope: Scope?
     /// Leave this state at the end of every line. Use for single-line constructs (C strings,

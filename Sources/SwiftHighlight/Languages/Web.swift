@@ -63,8 +63,8 @@ extension BuiltinGrammars {
             .match(#"\b[A-Z][\w$]*"#, .type),
             .match(#"(?<=\.)[A-Za-z_$][\w$]*"#, .property),
         ]
-        var states: [String: State] = [
-            "root": State(rules: rules),
+        var states: [String: GrammarState] = [
+            "root": GrammarState(rules: rules),
             "single": Kit.stringState(close: "'"),
             "double": Kit.stringState(close: "\""),
             "template": Kit.stringState(close: "`", singleLine: false, extra: [
@@ -112,7 +112,7 @@ extension BuiltinGrammars {
         fileNames: [".babelrc", ".eslintrc", ".prettierrc", "composer.lock", "package.resolved", ".swiftpm"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .match(#""(?:[^"\\]|\\.)*"(?=\s*:)"#, .key),
                     .push("\"", "string"),
                     .match(#"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"#, .number),
@@ -142,17 +142,17 @@ extension BuiltinGrammars {
         .push(#"'"#, "attributeSingle"),
     ]
 
-    private static let markupStates: [String: State] = [
-        "comment": State(scope: .commentBlock, rules: [.pop(#"-->"#)]),
-        "cdata": State(scope: .string, rules: [.pop(#"\]\]>"#, scope: .punctuation)]),
-        "processing": State(scope: .preprocessor, rules: [.pop(#"\?>"#)]),
-        "doctype": State(scope: .preprocessor, rules: [.pop(#">"#)]),
-        "tag": State(rules: markupTagRules),
-        "attributeDouble": State(scope: .string, rules: [
+    private static let markupStates: [String: GrammarState] = [
+        "comment": GrammarState(scope: .commentBlock, rules: [.pop(#"-->"#)]),
+        "cdata": GrammarState(scope: .string, rules: [.pop(#"\]\]>"#, scope: .punctuation)]),
+        "processing": GrammarState(scope: .preprocessor, rules: [.pop(#"\?>"#)]),
+        "doctype": GrammarState(scope: .preprocessor, rules: [.pop(#">"#)]),
+        "tag": GrammarState(rules: markupTagRules),
+        "attributeDouble": GrammarState(scope: .string, rules: [
             .match(#"&(?:[A-Za-z][A-Za-z0-9]*|#\d+|#[xX]\h+);"#, .escape),
             .pop("\""),
         ]),
-        "attributeSingle": State(scope: .string, rules: [
+        "attributeSingle": GrammarState(scope: .string, rules: [
             .match(#"&(?:[A-Za-z][A-Za-z0-9]*|#\d+|#[xX]\h+);"#, .escape),
             .pop(#"'"#),
         ]),
@@ -168,7 +168,7 @@ extension BuiltinGrammars {
         firstLinePattern: #"^\s*<\?xml\b"#,
         states: Kit.merge(
             [
-                "root": State(rules: markupCommon + [
+                "root": GrammarState(rules: markupCommon + [
                     .push(#"(<)([A-Za-z_][\w:.-]*)"#, "tag", captures: [1: .punctuation, 2: .tag]),
                 ]),
             ],
@@ -184,18 +184,18 @@ extension BuiltinGrammars {
         firstLinePattern: #"(?i)^\s*<(?:!DOCTYPE\s+html|html)\b"#,
         states: Kit.merge(
             [
-                "root": State(rules: markupCommon + [
+                "root": GrammarState(rules: markupCommon + [
                     .match(#"\{\{[^}]*\}\}"#, .interpolation),
                     .push(#"(?i)(<)(script)\b"#, "scriptTag", captures: [1: .punctuation, 2: .tag]),
                     .push(#"(?i)(<)(style)\b"#, "styleTag", captures: [1: .punctuation, 2: .tag]),
                     .push(#"(<)([A-Za-z][\w:.-]*)"#, "tag", captures: [1: .punctuation, 2: .tag]),
                 ]),
-                "scriptTag": State(rules: [.set(#">"#, "scriptBody", scope: .punctuation)] + markupTagRules),
+                "scriptTag": GrammarState(rules: [.set(#">"#, "scriptBody", scope: .punctuation)] + markupTagRules),
                 "scriptBody": [
                     .pop(#"(?i)(?=</script)"#),
                     .embed("", language: "javascript", end: #"(?i)(?=</script)"#),
                 ],
-                "styleTag": State(rules: [.set(#">"#, "styleBody", scope: .punctuation)] + markupTagRules),
+                "styleTag": GrammarState(rules: [.set(#">"#, "styleBody", scope: .punctuation)] + markupTagRules),
                 "styleBody": [
                     .pop(#"(?i)(?=</style)"#),
                     .embed("", language: "css", end: #"(?i)(?=</style)"#),
@@ -242,10 +242,10 @@ extension BuiltinGrammars {
             .match(#"::?[A-Za-z-]+(?![\w-]*\s*;)"#, .keyword),
             .words(["inherit", "initial", "unset", "revert", "none", "auto", "transparent", "currentColor"], .constant),
         ]
-        var states: [String: State] = [
-            "root": State(rules: selectorRules),
-            "block": State(rules: blockRules),
-            "blockComment": State(scope: .commentBlock, rules: [.pop(#"\*/"#)]),
+        var states: [String: GrammarState] = [
+            "root": GrammarState(rules: selectorRules),
+            "block": GrammarState(rules: blockRules),
+            "blockComment": GrammarState(scope: .commentBlock, rules: [.pop(#"\*/"#)]),
             "double": Kit.stringState(close: "\"", escape: #"\\(?:\h{1,6}|.)"#),
             "single": Kit.stringState(close: "'", escape: #"\\(?:\h{1,6}|.)"#),
         ]

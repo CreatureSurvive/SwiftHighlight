@@ -10,6 +10,8 @@ struct RegistryTests {
         #expect(registry.language(named: "c++")?.id == "cpp")
         #expect(registry.language(named: "swift title=\"Example\"")?.id == "swift")
         #expect(registry.language(named: "{python}")?.id == "python")
+        #expect(registry.language(named: "```python title=x")?.id == "python")
+        #expect(registry.language(named: "~~~ {.rust}")?.id == "rust")
         #expect(registry.language(named: "nope") == nil)
         #expect(registry.language(forPath: "/a/b/View.swift")?.id == "swift")
         #expect(registry.language(forPath: "types.d.ts")?.id == "typescript")
@@ -35,7 +37,7 @@ struct RegistryTests {
                 .match(#"^\s*([\w.-]+)\s*(=)"#, captures: [1: .key, 2: .operator]),
                 .push("\"", "string", scope: .string),
             ],
-            "string": State(scope: .string, popAtLineEnd: true, rules: [.match(#"\\."#, .escape), .pop("\"")]),
+            "string": GrammarState(scope: .string, popAtLineEnd: true, rules: [.match(#"\\."#, .escape), .pop("\"")]),
         ]
     )
 
@@ -91,7 +93,7 @@ struct RegistryTests {
     }
 
     @Test func grammarErrorsAreDescriptive() {
-        func error(_ states: [String: State]) -> GrammarError? {
+        func error(_ states: [String: GrammarState]) -> GrammarError? {
             do {
                 _ = try Language(Grammar(name: "Bad", states: states))
                 return nil

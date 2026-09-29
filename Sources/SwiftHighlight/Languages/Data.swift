@@ -111,9 +111,9 @@ extension BuiltinGrammars {
                 .words(["true", "false", "null", "unknown"], .constant, caseInsensitive: true),
                 Kit.functionCall,
             ],
-            "blockComment": State(scope: .commentBlock, rules: [.pop(#"\*/"#)]),
-            "single": State(scope: .string, rules: [.match("''", .escape), .match(#"\\."#, .escape), .pop("'")]),
-            "dollarQuoted": State(scope: .string, rules: [.pop(#"\$\k\$"#)]),
+            "blockComment": GrammarState(scope: .commentBlock, rules: [.pop(#"\*/"#)]),
+            "single": GrammarState(scope: .string, rules: [.match("''", .escape), .match(#"\\."#, .escape), .pop("'")]),
+            "dollarQuoted": GrammarState(scope: .string, rules: [.pop(#"\$\k\$"#)]),
         ]
     )
 
@@ -155,7 +155,7 @@ extension BuiltinGrammars {
         fileExtensions: ["proto"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .push("\"", "double"),
                     .push(#"'"#, "single"),
                     Kit.number,
@@ -187,7 +187,7 @@ extension BuiltinGrammars {
         fileNames: ["Dockerfile", "Containerfile"],
         states: Kit.merge(
             [
-                "root": State(rules: [
+                "root": GrammarState(rules: [
                     .match(#"^\s*#\s*(?:syntax|escape|check)\s*=.*"#, .preprocessor),
                     .match(#"^\s*#.*"#, .commentLine),
                     .match(#"(?i)^\s*(?:FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\b"#,
@@ -220,13 +220,13 @@ extension BuiltinGrammars {
                 .push("\"", "double"),
                 .push(#"'"#, "single"),
             ],
-            "reference": State(scope: .variable, rules: [
+            "reference": GrammarState(scope: .variable, rules: [
                 .match(#"(?<=\$\()(?:subst|patsubst|strip|findstring|filter|filter-out|sort|word|words|wordlist|firstword|lastword|dir|notdir|suffix|basename|addsuffix|addprefix|join|wildcard|realpath|abspath|if|or|and|foreach|file|call|value|eval|origin|flavor|error|warning|info|shell|guile)\b"#,
                        .functionBuiltin),
                 .push(#"\$\("#, "reference", scope: .interpolation),
                 .pop(#"\)"#, scope: .interpolation),
             ]),
-            "braceReference": State(scope: .variable, rules: [.pop(#"\}"#, scope: .interpolation)]),
+            "braceReference": GrammarState(scope: .variable, rules: [.pop(#"\}"#, scope: .interpolation)]),
             "double": Kit.stringState(close: "\"", extra: [.push(#"\$\("#, "reference", scope: .interpolation)]),
             "single": Kit.stringState(close: "'", escape: nil),
         ]
@@ -275,7 +275,7 @@ extension BuiltinGrammars {
                 .match(#"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*$"#, .punctuation),
                 .include("inline"),
             ],
-            "quote": State(scope: .quote, popAtLineEnd: true, rules: [.include("inline")]),
+            "quote": GrammarState(scope: .quote, popAtLineEnd: true, rules: [.include("inline")]),
             "inline": [
                 .match(#"(`+)[^`](?:.*?[^`])?\1(?!`)|``"#, .inlineCode),
                 .match(#"!?(\[)((?:[^\[\]\\]|\\.)*)(\])(\()([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)(?:(\s+)("[^"]*"|'[^']*'))?(\))"#,

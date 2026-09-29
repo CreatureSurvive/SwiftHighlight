@@ -10,15 +10,15 @@ enum Kit {
         .match(#"//.*"#, .commentLine),
     ]
 
-    static let cCommentStates: [String: State] = [
-        "blockComment": State(scope: .commentBlock, rules: [.pop(#"\*/"#)]),
-        "docComment": State(scope: .commentDocumentation, rules: [.pop(#"\*/"#)]),
+    static let cCommentStates: [String: GrammarState] = [
+        "blockComment": GrammarState(scope: .commentBlock, rules: [.pop(#"\*/"#)]),
+        "docComment": GrammarState(scope: .commentDocumentation, rules: [.pop(#"\*/"#)]),
     ]
 
     /// Block comments that nest (Swift, Rust, Kotlin, Dart, Scala).
-    static let nestedCommentStates: [String: State] = [
-        "blockComment": State(scope: .commentBlock, rules: [.push(#"/\*"#, "blockComment"), .pop(#"\*/"#)]),
-        "docComment": State(scope: .commentDocumentation, rules: [.push(#"/\*"#, "blockComment"), .pop(#"\*/"#)]),
+    static let nestedCommentStates: [String: GrammarState] = [
+        "blockComment": GrammarState(scope: .commentBlock, rules: [.push(#"/\*"#, "blockComment"), .pop(#"\*/"#)]),
+        "docComment": GrammarState(scope: .commentDocumentation, rules: [.push(#"/\*"#, "blockComment"), .pop(#"\*/"#)]),
     ]
 
     /// `#` comments that must start a word (so `a#b` and `$#` are not comments).
@@ -38,16 +38,16 @@ enum Kit {
     /// A quoted string state: `open` pushes it; `close` pops it; `escape` (if any) is scoped as an
     /// escape; `extra` rules (interpolation) come first.
     static func stringState(close: String, escape: String? = #"\\(?:u\{[\h]{1,8}\}|u[\h]{4}|U[\h]{8}|x[\h]{2}|[0-7]{1,3}|.)"#,
-                            scope: Scope = .string, singleLine: Bool = true, extra: [Rule] = []) -> State {
+                            scope: Scope = .string, singleLine: Bool = true, extra: [Rule] = []) -> GrammarState {
         var rules = extra
         if let escape { rules.append(.match(escape, .escape)) }
         rules.append(.pop(close))
-        return State(scope: scope, popAtLineEnd: singleLine, rules: rules)
+        return GrammarState(scope: scope, popAtLineEnd: singleLine, rules: rules)
     }
 
     /// Code inside `open`/`close` interpolation (`${…}`, `#{…}`): the `close` pops back to the
     /// string; nested braces are balanced so `${ {a: 1} }` works.
-    static func interpolationStates(name: String, close: String = #"\}"#, include root: String = "root") -> [String: State] {
+    static func interpolationStates(name: String, close: String = #"\}"#, include root: String = "root") -> [String: GrammarState] {
         [
             name: [
                 .pop(close, scope: .interpolation),
@@ -76,8 +76,8 @@ enum Kit {
     /// An identifier after `.` → property (after calls have been tried).
     static let property: Rule = .match(#"(?<=\.)[A-Za-z_]\w*"#, .property)
 
-    static func merge(_ dictionaries: [String: State]...) -> [String: State] {
-        var result: [String: State] = [:]
+    static func merge(_ dictionaries: [String: GrammarState]...) -> [String: GrammarState] {
+        var result: [String: GrammarState] = [:]
         for dictionary in dictionaries { result.merge(dictionary) { _, new in new } }
         return result
     }

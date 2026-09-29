@@ -3,7 +3,7 @@
 extension BuiltinGrammars {
     // MARK: Python
 
-    private static let pythonStringStates: (rules: [Rule], states: [String: State]) = {
+    private static let pythonStringStates: (rules: [Rule], states: [String: GrammarState]) = {
         let kinds: [(prefix: String, name: String, raw: Bool, format: Bool)] = [
             (#"(?:[rR][fF]|[fF][rR])"#, "rawFormat", true, true),
             (#"[fF]"#, "format", false, true),
@@ -15,7 +15,7 @@ extension BuiltinGrammars {
             (#"'"#, "Single", false), ("\"", "Double", false),
         ]
         var rules: [Rule] = []
-        var states: [String: State] = [:]
+        var states: [String: GrammarState] = [:]
         for kind in kinds {
             for quote in quotes {
                 let name = kind.name + quote.name
@@ -43,7 +43,7 @@ extension BuiltinGrammars {
         firstLinePattern: #"^#!.*\bpython(?:\d(?:\.\d+)?)?\b"#,
         states: Kit.merge(
             [
-                "root": State(rules: [
+                "root": GrammarState(rules: [
                     .match(#"#.*"#, .commentLine),
                 ] + pythonStringStates.rules + [
                     .match(#"@[A-Za-z_][\w.]*"#, .attribute),
@@ -81,7 +81,7 @@ extension BuiltinGrammars {
         identifierPattern: #"[A-Za-z_]\w*[?!]?"#,
         states: Kit.merge(
             [
-                "root": State(rules: [
+                "root": GrammarState(rules: [
                     .push(#"^=begin\b"#, "blockComment"),
                     .match(#"#.*"#, .commentLine),
                     .push("\"", "double"),
@@ -114,7 +114,7 @@ extension BuiltinGrammars {
                     .match(#"\b[A-Z]\w*"#, .type),
                     .match(#"(?<=\.)[A-Za-z_]\w*[?!]?"#, .functionCall),
                 ]),
-                "blockComment": State(scope: .commentBlock, rules: [.pop(#"^=end\b.*"#)]),
+                "blockComment": GrammarState(scope: .commentBlock, rules: [.pop(#"^=end\b.*"#)]),
                 "double": Kit.stringState(close: "\"", singleLine: false, extra: rubyInterpolation),
                 "backtick": Kit.stringState(close: "`", singleLine: false, extra: rubyInterpolation),
                 "single": Kit.stringState(close: "'", escape: #"\\[\\']"#, singleLine: false),
@@ -137,7 +137,7 @@ extension BuiltinGrammars {
         firstLinePattern: #"^(?:<\?php\b|#!.*\bphp\b)"#,
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .match(#"<\?(?:php\b|=)?|\?>"#, .preprocessor),
                     .match(#"#\[[^\]]*\]"#, .attribute),
                     .match(#"#.*"#, .commentLine),
@@ -204,8 +204,8 @@ extension BuiltinGrammars {
                 .match(#"[A-Za-z_]\w*(?=\s*[({"'])"#, .functionCall),
                 .match(#"(?<=[.:])[A-Za-z_]\w*"#, .property),
             ],
-            "longComment": State(scope: .commentBlock, rules: [.pop(#"\]\k\]"#)]),
-            "longString": State(scope: .string, rules: [.pop(#"\]\k\]"#)]),
+            "longComment": GrammarState(scope: .commentBlock, rules: [.pop(#"\]\k\]"#)]),
+            "longString": GrammarState(scope: .string, rules: [.pop(#"\]\k\]"#)]),
             "double": Kit.stringState(close: "\"", escape: #"\\(?:x\h{2}|u\{\h+\}|\d{1,3}|z|.)"#),
             "single": Kit.stringState(close: "'", escape: #"\\(?:x\h{2}|u\{\h+\}|\d{1,3}|z|.)"#),
         ]
@@ -241,7 +241,7 @@ extension BuiltinGrammars {
         .match(#"\b\d+\b"#, .number),
     ]
 
-    static let shellStates: [String: State] = [
+    static let shellStates: [String: GrammarState] = [
         "double": Kit.stringState(close: "\"", escape: #"\\[$`"\\\n]"#, singleLine: false, extra: [
             .push(#"\$\(\("#, "arithmetic", scope: .interpolation),
             .push(#"\$\("#, "subshell", scope: .interpolation),
@@ -252,7 +252,7 @@ extension BuiltinGrammars {
         "single": Kit.stringState(close: "'", escape: nil, singleLine: false),
         "ansiString": Kit.stringState(close: "'", escape: #"\\(?:x\h{1,2}|u\h{1,4}|U\h{1,8}|[0-7]{1,3}|c.|.)"#,
                                       singleLine: false),
-        "backtick": State(scope: .string, rules: [.pop("`"), .match(#"\\."#, .escape)]),
+        "backtick": GrammarState(scope: .string, rules: [.pop("`"), .match(#"\\."#, .escape)]),
         "subshell": [
             .pop(#"\)"#, scope: .interpolation),
             .push(#"\("#, "parens"),
@@ -260,13 +260,13 @@ extension BuiltinGrammars {
         ],
         "parens": [.push(#"\("#, "parens"), .pop(#"\)"#), .include("root")],
         "arithmetic": [.pop(#"\)\)"#, scope: .interpolation), .include("root")],
-        "expansion": State(scope: .variable, rules: [
+        "expansion": GrammarState(scope: .variable, rules: [
             .pop(#"\}"#, scope: .interpolation),
             .push(#"\$\{"#, "expansion", scope: .interpolation),
             .push("\"", "double"),
             .push(#"'"#, "single"),
         ]),
-        "heredoc": State(scope: .string, rules: [.pop(#"^\s*\k$"#, scope: .keywordOperator)]),
+        "heredoc": GrammarState(scope: .string, rules: [.pop(#"^\s*\k$"#, scope: .keywordOperator)]),
     ]
 
     static let shell = Grammar(
@@ -279,6 +279,6 @@ extension BuiltinGrammars {
                     ".zprofile", ".zlogin", ".zlogout", ".kshrc", ".env", ".envrc", "PKGBUILD", "APKBUILD"],
         firstLinePattern: #"^#!.*\b(?:ba|z|k|da|fi)?sh\b"#,
         wordCharacters: #"A-Za-z0-9_"#,
-        states: Kit.merge(["root": State(rules: shellRules)], shellStates)
+        states: Kit.merge(["root": GrammarState(rules: shellRules)], shellStates)
     )
 }

@@ -34,7 +34,7 @@ extension BuiltinGrammars {
         fileExtensions: ["c"],
         states: Kit.merge(
             [
-                "root": State(rules: cPreprocessor + Kit.cComments + cStrings + [
+                "root": GrammarState(rules: cPreprocessor + Kit.cComments + cStrings + [
                     Kit.number,
                     .words(cControl, .keywordControl),
                     .words(cTypes, .keywordDeclaration),
@@ -59,7 +59,7 @@ extension BuiltinGrammars {
         fileExtensions: ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "tpp", "inl", "ino", "cu", "cuh"],
         states: Kit.merge(
             [
-                "root": State(rules: cPreprocessor + Kit.cComments + [
+                "root": GrammarState(rules: cPreprocessor + Kit.cComments + [
                     .push(#"(?:u8|[uUL])?R"([^()\\\s]{0,16})\("#, "rawString", delimiter: 1),
                 ] + cStrings + [
                     Kit.number,
@@ -82,7 +82,7 @@ extension BuiltinGrammars {
                     Kit.functionCall,
                 ] + Kit.constantsAndTypes + [Kit.property]),
                 "string": Kit.stringState(close: "\""),
-                "rawString": State(scope: .string, rules: [.pop(#"\)\k""#)]),
+                "rawString": GrammarState(scope: .string, rules: [.pop(#"\)\k""#)]),
             ],
             Kit.cCommentStates
         )
@@ -97,7 +97,7 @@ extension BuiltinGrammars {
         fileExtensions: ["m", "mm", "h"],
         states: Kit.merge(
             [
-                "root": State(rules: cPreprocessor + Kit.cComments + [
+                "root": GrammarState(rules: cPreprocessor + Kit.cComments + [
                     .push(#"@""#, "string"),
                     .match(#"@(?:interface|implementation|end|protocol|property|synthesize|dynamic|class|selector|encode|optional|required|public|private|protected|package|try|catch|finally|throw|autoreleasepool|synchronized|import|available|compatibility_alias|defs)\b"#,
                            .keyword),
@@ -136,7 +136,7 @@ extension BuiltinGrammars {
         fileExtensions: ["cs", "csx"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .match(#"^\s*#\s*[a-z]+"#, .preprocessor),
                     .match(#"^\s*\[\s*([A-Z]\w*)"#, captures: [1: .attribute]),
                     .push("\"\"\"", "rawString"),
@@ -193,7 +193,7 @@ extension BuiltinGrammars {
         fileExtensions: ["java", "jsh"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .match(#"@(?!interface\b)[A-Za-z_][\w.]*"#, .attribute),
                     .push("\"\"\"", "textBlock"),
                     .push("\"", "string"),
@@ -230,7 +230,7 @@ extension BuiltinGrammars {
         fileExtensions: ["kt", "kts"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .match(#"@(?:[A-Za-z_]\w*:)?[A-Za-z_][\w.]*"#, .attribute),
                     .push("\"\"\"", "rawString"),
                     .push("\"", "string"),
@@ -277,7 +277,7 @@ extension BuiltinGrammars {
         fileExtensions: ["dart"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .match(#"@[A-Za-z_][\w.]*"#, .attribute),
                     .push(#"r'''"#, "rawTripleSingle"),
                     .push(#"r""""#, "rawTripleDouble"),
@@ -333,7 +333,7 @@ extension BuiltinGrammars {
         fileExtensions: ["go"],
         states: Kit.merge(
             [
-                "root": State(rules: Kit.cComments + [
+                "root": GrammarState(rules: Kit.cComments + [
                     .push("\"", "string"),
                     .push(#"`"#, "rawString"),
                     .match(#"'(?:\\(?:x\h{2}|u\h{4}|U\h{8}|[0-7]{3}|.)|[^'\\])'"#, .character),
@@ -370,7 +370,7 @@ extension BuiltinGrammars {
         fileExtensions: ["rs"],
         states: Kit.merge(
             [
-                "root": State(rules: [
+                "root": GrammarState(rules: [
                     .push(#"/\*[*!](?![*/])"#, "docComment"),
                     .push(#"/\*"#, "blockComment"),
                     .match(#"//[/!].*"#, "comment.line.documentation"),
