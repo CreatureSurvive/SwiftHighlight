@@ -15,7 +15,7 @@ import UIKit
 struct ReadmeTests {
     let source = "fn main() { println!(\"hi\"); }"
 
-    @Test func quickStart() {
+    @Test @MainActor func quickStart() {
         let code = Language.swift.highlight("let x = 1")
         #if canImport(SwiftUI) && (canImport(UIKit) || canImport(AppKit))
         _ = CodeView("let x = 1", language: "swift", theme: .github)
